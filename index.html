@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Space Arcade Game</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #000;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+    canvas {
+      border: 1px solid #fff;
+    }
+    #controls {
+      position: absolute;
+      bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      width: 80%;
+      max-width: 400px;
+    }
+    .control-button {
+      background-color: rgba(255, 255, 255, 0.2);
+      color: #fff;
+      border: 2px solid #fff;
+      padding: 10px 20px;
+      font-size: 20px;
+      cursor: pointer;
+      user-select: none;
+      border-radius: 10px;
+    }
+    .control-button:active {
+      background-color: rgba(255, 255, 255, 0.5);
+    }
+    #resetButton {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none; /* 기본적으로 숨김 */
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+  <div id="controls">
+    <div class="control-button" id="leftButton">←</div>
+    <div class="control-button" id="shootButton">🔫</div>
+    <div class="control-button" id="rightButton">→</div>
+  </div>
+  <div class="control-button" id="resetButton">Reset</div>
+
+  <script>
+    // 서비스 워커 등록
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("sw.js")
+        .then(() => console.log("Service Worker 등록 성공"))
+        .catch((err) => console.log("Service Worker 등록 실패: ", err));
+    }
+
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // 게임 변수
+    const SCREEN_WIDTH = canvas.width;
+    const SCREEN_HEIGHT = canvas.height;
+    const PLAYER_WIDTH = 50;
+    const PLAYER_HEIGHT = 50;
+    const PLAYER_SPEED = 5;
+    const BULLET_WIDTH = 5;
+    const BULLET_HEIGHT = 15;
+    const BULLET_SPEED = 7;
+    const ASTEROID_WIDTH = 50;
+    const ASTEROID_HEIGHT = 50;
+    const ASTEROID_SPEED = 3;
+
+    let playerX = SCREEN_WIDTH / 2 - PLAYER_WIDTH / 2;
+    let playerY = SCREEN_HEIGHT - PLAYER_HEIGHT - 10;
+    let bulletX = 0;
+    let bulletY = playerY;
+    let bulletState = "ready"; // "ready" 또는 "fire"
+    let asteroids = [];
+    let score = 0;
+    let gameOver = false;
+
+    // 이동 플래그
+    let moveLeft = false;
+    let moveRight = false;
+
+    // 플레이어 그리기 (초록색 사각형)
+    function drawPlayer() {
+      ctx.fillStyle = "#00FF00";
+      ctx.fillRect(playerX, playerY, PLAYER_WIDTH, PLAYER_HEIGHT);
+    }
+
+    // 총알 그리기 (빨간색 사각형)
+    function drawBullet() {
+      ctx.fillStyle = "#FF0000";
+      ctx.fillRect(bulletX, bulletY, BULLET_WIDTH, BULLET_HEIGHT);
+    }
+
+    // 소행성 그리기 (흰색 원)
+    function drawAsteroid(x, y) {
+      ctx.fillStyle = "#FFFFFF";
+      ctx.beginPath();
+      ctx.arc(x + ASTEROID_WIDTH / 2, y + ASTEROID_HEIGHT / 2, ASTEROID_WIDTH / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 총알과 소행성 충돌 검사
+    function isCollision(bulletX, bulletY, asteroidX, asteroidY) {
+      return (
+        asteroidX < bulletX &&
+        bulletX < asteroidX + ASTEROID_WIDTH &&
+        asteroidY < bulletY &&
+        bulletY < asteroidY + ASTEROID_HEIGHT
+      );
+    }
+
+    // 게임 리셋
+    function resetGame() {
+      gameOver = false;
+      playerX = SCREEN_WIDTH / 2 - PLAYER_WIDTH / 2;
+      playerY = SCREEN_HEIGHT - PLAYER_HEIGHT - 10;
+      bulletState = "ready";
+      asteroids = [];
+      score = 0;
+      document.getElementById("resetButton").style.display = "none";
+      gameLoop();
+    }
+
+    // 게임 루프
+    function gameLoop() {
+      // 화면 지우기
+      ctx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+      // 플레이어 그리기
+      drawPlayer();
+
+      // 총알 그리기
+      if (bulletState === "fire") {
+        drawBullet();
+        bulletY -= BULLET_SPEED;
+        if (bulletY <= 0) {
+          bulletState = "ready";
+        }
+      }
+
+      // 소행성 그리기
+      for (let i = 0; i < asteroids.length; i++) {
+        const asteroid = asteroids[i];
+        drawAsteroid(asteroid.x, asteroid.y);
+        asteroid.y += ASTEROID_SPEED;
+
+        // 플레이어와 충돌 검사
+        if (
+          playerX < asteroid.x + ASTEROID_WIDTH &&
+          playerX + PLAYER_WIDTH > asteroid.x &&
+          playerY < asteroid.y + ASTEROID_HEIGHT &&
+          playerY + PLAYER_HEIGHT > asteroid.y
+        ) {
+          gameOver = true;
+        }
+
+        // 총알과 충돌 검사
+        if (isCollision(bulletX, bulletY, asteroid.x, asteroid.y)) {
+          asteroids.splice(i, 1);
+          bulletState = "ready";
+          score += 1;
+        }
+
+        // 소행성이 화면 밖으로 나가면 제거
+        if (asteroid.y > SCREEN_HEIGHT) {
+          asteroids.splice(i, 1);
+        }
+      }
+
+      // 새로운 소행성 생성
+      if (Math.random() < 0.02) {
+        const asteroidX = Math.random() * (SCREEN_WIDTH - ASTEROID_WIDTH);
+        asteroids.push({ x: asteroidX, y: 0 });
+      }
+
+      // 점수 표시
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "24px Arial";
+      ctx.fillText(`점수: ${score}`, 10, 30);
+
+      // 게임 오버 화면
+      if (gameOver) {
+        ctx.fillStyle = "#FF0000";
+        ctx.font = "36px Arial";
+        ctx.fillText("게임 오버!", SCREEN_WIDTH / 2 - 100, SCREEN_HEIGHT / 2);
+        document.getElementById("resetButton").style.display = "block";
+        return; // 게임 루프 중지
+      }
+
+      // 플레이어 이동
+      if (moveLeft && playerX > 0) {
+        playerX -= PLAYER_SPEED;
+      }
+      if (moveRight && playerX < SCREEN_WIDTH - PLAYER_WIDTH) {
+        playerX += PLAYER_SPEED;
+      }
+
+      // 게임 루프 계속 실행
+      requestAnimationFrame(gameLoop);
+    }
+
+    // 키보드 컨트롤
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowLeft") {
+        moveLeft = true;
+      }
+      if (event.key === "ArrowRight") {
+        moveRight = true;
+      }
+      if (event.key === " " && bulletState === "ready") { // 스페이스바
+        bulletX = playerX + PLAYER_WIDTH / 2 - BULLET_WIDTH / 2;
+        bulletY = playerY;
+        bulletState = "fire";
+      }
+    });
+
+    document.addEventListener("keyup", (event) => {
+      if (event.key === "ArrowLeft") {
+        moveLeft = false;
+      }
+      if (event.key === "ArrowRight") {
+        moveRight = false;
+      }
+    });
+
+    // 모바일 컨트롤
+    const leftButton = document.getElementById("leftButton");
+    const rightButton = document.getElementById("rightButton");
+    const shootButton = document.getElementById("shootButton");
+    const resetButton = document.getElementById("resetButton");
+
+    leftButton.addEventListener("touchstart", () => {
+      moveLeft = true;
+    });
+    leftButton.addEventListener("touchend", () => {
+      moveLeft = false;
+    });
+
+    rightButton.addEventListener("touchstart", () => {
+      moveRight = true;
+    });
+    rightButton.addEventListener("touchend", () => {
+      moveRight = false;
+    });
+
+    shootButton.addEventListener("touchstart", () => {
+      if (bulletState === "ready") {
+        bulletX = playerX + PLAYER_WIDTH / 2 - BULLET_WIDTH / 2;
+        bulletY = playerY;
+        bulletState = "fire";
+      }
+    });
+
+    resetButton.addEventListener("click", resetGame);
+
+    // 게임 루프 시작
+    gameLoop();
+  </script>
+</body>
+</html>
